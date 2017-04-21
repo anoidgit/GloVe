@@ -4,12 +4,14 @@ CFLAGS = -lm -pthread -Ofast -march=native -funroll-loops -Wno-unused-result
 BUILDDIR := build
 SRCDIR := src
 
-all: dir glove shuffle cooccur class_cooccur vocab_count
+all: dir glove load_glove shuffle cooccur class_cooccur vocab_count
 
 dir :
 	mkdir -p $(BUILDDIR)
 glove : $(SRCDIR)/glove.c
 	$(CC) $(SRCDIR)/glove.c -o $(BUILDDIR)/glove $(CFLAGS)
+load_glove : $(SRCDIR)/load_glove.c
+	$(CC) $(SRCDIR)/load_glove.c -o $(BUILDDIR)/load_glove $(CFLAGS)
 shuffle : $(SRCDIR)/shuffle.c
 	$(CC) $(SRCDIR)/shuffle.c -o $(BUILDDIR)/shuffle $(CFLAGS)
 cooccur : $(SRCDIR)/cooccur.c
@@ -20,4 +22,4 @@ vocab_count : $(SRCDIR)/vocab_count.c
 	$(CC) $(SRCDIR)/vocab_count.c -o $(BUILDDIR)/vocab_count $(CFLAGS)
 
 clean:
-	rm -rf glove shuffle cooccur class_cooccur vocab_count build
+	rm -rf glove load_glove shuffle cooccur class_cooccur vocab_count build
