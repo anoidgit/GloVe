@@ -59,6 +59,17 @@ def sentvec(lin, vd, unkv):
 			rs = add_vec(rs, vd.get(lu, unkv))
 	return rs
 
+def sentvecnounk(lin, vd):
+	rs = False
+	for lu in lin:
+		if not rs:
+			if lu in vd:
+				rs = vd[lu]
+		else:
+			if lu in vd:
+				rs = add_vec(rs, vd[lu])
+	return rs
+
 def g_class(svec, classes):
 	norm_svec = norm_vec(svec)
 	rs = ""
@@ -70,17 +81,23 @@ def g_class(svec, classes):
 			rs = k
 	return rs, rscore
 
-def handle(srcf, rsf, vecf):
+def handle(srcf, rsf, vecf, useunk):
 	vecs, cls, unkv = ldvec(vecf)
 	with open(srcf) as frd:
 		with open(rsf, "w") as fwrt:
 			for line in frd:
 				tmp = line.strip()
 				if tmp:
-					tmp = sentvec(tmp.decode("utf-8").split(" "), vecs, unkv)
+					if useunk:
+						tmp = sentvec(tmp.decode("utf-8").split(" "), vecs, unkv)
+					else:
+						tmp = sentvecnounk(tmp.decode("utf-8").split(" "), vecs)
 					tmp, score = g_class(tmp, cls)
 					fwrt.write(tmp.encode("utf-8"))
 					fwrt.write("\n".encode("utf-8"))
 
 if __name__=="__main__":
-	handle(sys.argv[1].decode("utf-8"), sys.argv[2].decode("utf-8"), sys.argv[3].decode("utf-8"))
+	if len(sys.argv>4):
+		handle(sys.argv[1].decode("utf-8"), sys.argv[2].decode("utf-8"), sys.argv[3].decode("utf-8"), sys.argv[4].decode("utf-8"))
+	else:
+		handle(sys.argv[1].decode("utf-8"), sys.argv[2].decode("utf-8"), sys.argv[3].decode("utf-8"), True)
