@@ -59,8 +59,9 @@ int window_size = 15; // default context window size
 int symmetric = 1; // 0: asymmetric, 1: symmetric
 real memory_limit = 3; // soft limit, in gigabytes, used to estimate optimal array sizes
 char *vocab_file, *file_head;
-real label_weight = 0.5; // weight for classifier
-real combine_weight = 0.25; //weight for combination
+real label_weight = 1.0; // weight for classifier
+real combine_weight = 0.125; //weight for combination
+int mutex_train = 0;// use unsupervise while supervise
 
 /* Efficient string comparison */
 int scmp( char *s1, char *s2 ) {
@@ -390,27 +391,29 @@ int get_cooccurrence() {
 		else if(isCombineWord(str)){
 			combine_learn = 1;
 		}
-		else if(combine_learn&&(record_combine_word==0)){
+		else if(combine_learn&&(record_combine_word == 0)){
 			combine_word = w2;
 			record_combine_word = 1;
 		}
 		else{
-			for (k = j - 1; k >= ( (j > window_size) ? j - window_size : 0 ); k--) { // Iterate over all words to the left of target word, but not past beginning of line
-				w1 = history[k % window_size]; // Context word (frequency rank)
-				if ( w1 < max_product/w2 ) { // Product is small enough to store in a full array
-					bigram_table[lookup[w1-1] + w2 - 2] += 1.0/((real)(j-k)); // Weight by inverse of distance between words
-					if (symmetric > 0) bigram_table[lookup[w2-1] + w1 - 2] += 1.0/((real)(j-k)); // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
-				}
-				else { // Product is too big, data is likely to be sparse. Store these entries in a temporary buffer to be sorted, merged (accumulated), and written to file when it gets full.
-					cr[ind].word1 = w1;
-					cr[ind].word2 = w2;
-					cr[ind].val = 1.0/((real)(j-k));
-					ind++; // Keep track of how full temporary buffer is
-					if (symmetric > 0) { // Symmetric context
-						cr[ind].word1 = w2;
-						cr[ind].word2 = w1;
+			if (!(have_class&&mutex_train)){
+				for (k = j - 1; k >= ( (j > window_size) ? j - window_size : 0 ); k--) { // Iterate over all words to the left of target word, but not past beginning of line
+					w1 = history[k % window_size]; // Context word (frequency rank)
+					if ( w1 < max_product/w2 ) { // Product is small enough to store in a full array
+						bigram_table[lookup[w1-1] + w2 - 2] += 1.0/((real)(j-k)); // Weight by inverse of distance between words
+						if (symmetric > 0) bigram_table[lookup[w2-1] + w1 - 2] += 1.0/((real)(j-k)); // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
+					}
+					else { // Product is too big, data is likely to be sparse. Store these entries in a temporary buffer to be sorted, merged (accumulated), and written to file when it gets full.
+						cr[ind].word1 = w1;
+						cr[ind].word2 = w2;
 						cr[ind].val = 1.0/((real)(j-k));
-						ind++;
+						ind++; // Keep track of how full temporary buffer is
+						if (symmetric > 0) { // Symmetric context
+							cr[ind].word1 = w2;
+							cr[ind].word2 = w1;
+							cr[ind].val = 1.0/((real)(j-k));
+							ind++;
+						}
 					}
 				}
 			}
@@ -550,6 +553,7 @@ int main(int argc, char **argv) {
 	if ((i = find_arg((char *)"-overflow-length", argc, argv)) > 0) overflow_length = atoll(argv[i + 1]);
 	if ((i = find_arg((char *)"-label-weight", argc, argv)) > 0) label_weight = atof(argv[i + 1]);
 	if ((i = find_arg((char *)"-combine-weight", argc, argv)) > 0) combine_weight = atof(argv[i + 1]);
+	if ((i = find_arg((char *)"-mutex-train", argc, argv)) > 0) mutex_train = 1;
 	
 	return get_cooccurrence();
 }
