@@ -31,6 +31,8 @@
 #define HASHFN bitwisehash
 
 static const int MAX_STRING_LENGTH = 1000;
+static const int MAX_LINE_LENGTH = 32768;
+
 typedef double real;
 
 typedef struct cooccur_rec {
@@ -60,8 +62,9 @@ int symmetric = 1; // 0: asymmetric, 1: symmetric
 real memory_limit = 3; // soft limit, in gigabytes, used to estimate optimal array sizes
 char *vocab_file, *file_head;
 real label_weight = 1.0; // weight for classifier
-real combine_weight = 0.125; //weight for combination
+real combine_weight = 0.125; // weight for combination
 int mutex_train = 0;// use unsupervise while supervise
+int balance_line = 0;// balance the class weight for a line data
 
 /* Efficient string comparison */
 int scmp( char *s1, char *s2 ) {
@@ -316,6 +319,8 @@ int get_cooccurrence() {
 	int guided_learn = 0;
 	long long combine_word = 0;
 	long long cur_class = 0;
+	long long line_data[MAX_LINE_LENGTH + 1];
+	int nWords_line = 0;
 	real extra_added_weight = 0;
 	HASHREC *htmp, **vocab_hash = inithashtable();
 	CREC *cr = malloc(sizeof(CREC) * (overflow_length + 1));
@@ -378,7 +383,40 @@ int get_cooccurrence() {
 		}
 		flag = get_word(str, fid);
 		if (feof(fid)) break;
-		if (flag == 1) {j = 0; cur_class = 0; have_class = 0; combine_learn = 0; record_combine_word = 0; guided_learn = 0; continue;} // Newline, reset line index (j)
+		if (flag == 1) {
+			j = 0;
+			cur_class = 0;
+			have_class = 0;
+			combine_learn = 0;
+			record_combine_word = 0;
+			guided_learn = 0;
+			if (nWords_line > 0){
+				int _i = 0;
+				extra_added_weight = label_weight/nWords_line;
+				w1 = cur_class; // Current class
+				for (_i = 0; _i < nWords_line; _i++){
+					w2 = line_data[_i];
+					if ( w1 < max_product/w2 ) { // Product is small enough to store in a full array
+						bigram_table[lookup[w1-1] + w2 - 2] += extra_added_weight; // Weight by inverse of distance between words
+						if (symmetric > 0) bigram_table[lookup[w2-1] + w1 - 2] += extra_added_weight; // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
+					}
+					else { // Product is too big, data is likely to be sparse. Store these entries in a temporary buffer to be sorted, merged (accumulated), and written to file when it gets full.
+						cr[ind].word1 = w1;
+						cr[ind].word2 = w2;
+						cr[ind].val = extra_added_weight;
+						ind++; // Keep track of how full temporary buffer is
+						if (symmetric > 0) { // Symmetric context
+							cr[ind].word1 = w2;
+							cr[ind].word2 = w1;
+							cr[ind].val = extra_added_weight;
+							ind++;
+						}
+					}
+				}
+				nWords_line = 0;
+			}
+			continue;
+		} // Newline, reset line index (j)
 		counter++;
 		if ((counter%100000) == 0) if (verbose > 1) fprintf(stderr,"\033[19G%lld",counter);
 		htmp = hashsearch(vocab_hash, str);
@@ -418,9 +456,19 @@ int get_cooccurrence() {
 				}
 			}
 			if(have_class){
-				w1 = cur_class;
-				extra_added_weight = label_weight;
-				guided_learn = 1;
+				if (balance_line){
+					line_data[nWords_line++] = w2;
+					if (nWords_line >= MAX_LINE_LENGTH){
+						nWords_line = MAX_LINE_LENGTH - 1;
+						fprintf(stderr, "Data overflow, change MAX_LINE_LENGTH and recompile!");
+					}
+					guided_learn = 0;
+				}
+				else{
+					w1 = cur_class;
+					extra_added_weight = label_weight;
+					guided_learn = 1;
+				}
 			}
 			else if(record_combine_word){
 				w1 = combine_word;
@@ -554,6 +602,7 @@ int main(int argc, char **argv) {
 	if ((i = find_arg((char *)"-label-weight", argc, argv)) > 0) label_weight = atof(argv[i + 1]);
 	if ((i = find_arg((char *)"-combine-weight", argc, argv)) > 0) combine_weight = atof(argv[i + 1]);
 	if ((i = find_arg((char *)"-mutex-train", argc, argv)) > 0) mutex_train = 1;
+	if ((i = find_arg((char *)"-balance-line", argc, argv)) > 0) balance_line = 1;
 	
 	return get_cooccurrence();
 }
