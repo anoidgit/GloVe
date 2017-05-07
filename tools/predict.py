@@ -98,6 +98,6 @@ def handle(srcf, rsf, vecf, useunk):
 
 if __name__=="__main__":
 	if len(sys.argv)>4:
-		handle(sys.argv[1].decode("utf-8"), sys.argv[2].decode("utf-8"), sys.argv[3].decode("utf-8"), sys.argv[4].decode("utf-8"))
+		handle(sys.argv[1].decode("utf-8"), sys.argv[2].decode("utf-8"), sys.argv[3].decode("utf-8"), bool(sys.argv[4].decode("utf-8")))
 	else:
 		handle(sys.argv[1].decode("utf-8"), sys.argv[2].decode("utf-8"), sys.argv[3].decode("utf-8"), True)
