@@ -31,7 +31,7 @@
 #define HASHFN bitwisehash
 
 static const int MAX_STRING_LENGTH = 1000;
-static const int MAX_LINE_LENGTH = 32768;
+static const int MAX_LINE_LENGTH = 16384;
 
 typedef double real;
 
