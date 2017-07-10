@@ -72,6 +72,19 @@ int scmp( char *s1, char *s2 ) {
 	return(*s1 - *s2);
 }
 
+int startswith(char *s1, char *s2){
+	int rt=1;
+	int i=0;
+	for (i=0;i<MAX_STRING_LENGTH;++i){
+		if(s2[i]=='\0') break;
+		else if(s1[i] == '\0' || s1[i] != s2[i]){
+			rt=0;
+			break;
+		}
+	}
+	return rt;
+}
+
 /* Move-to-front hashing and hash function from Hugh Williams, http://www.seg.rmit.edu.au/code/zwh-ipl/ */
 
 /* Simple bitwise hash function */
@@ -287,22 +300,12 @@ int merge_files(int num) {
 
 // Check whether this word is a supervised label
 int isLabelWord(char *word){
-	if ((word[0]=='_')&&(word[1]=='_')&&(word[2]=='l')&&(word[3]=='a')&&(word[4]=='a')&&(word[5]=='b')&&(word[6]=='e')&&(word[7]=='l')&&(word[8]=='_')&&(word[9]=='_')){
-		return 1;
-	}
-	else{
-		return 0;
-	}
+	return startswith(word, "__label__");
 }
 
 // Check whether this word means that this line is for character combination information learning of the word
 int isCombineWord(char *word){
-	if ((word[0]=='_')&&(word[1]=='_')&&(word[2]=='c')&&(word[3]=='o')&&(word[4]=='m')&&(word[5]=='b')&&(word[6]=='i')&&(word[7]=='n')&&(word[8]=='e')&&(word[9]=='_')&&(word[10]=='_')){
-		return 1;
-	}
-	else{
-		return 0;
-	}
+	return startswith(word, "__combine__");
 }
 
 /* Collect word-word cooccurrence counts from input stream */
