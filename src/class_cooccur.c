@@ -298,16 +298,6 @@ int merge_files(int num) {
 	return 0;
 }
 
-// Check whether this word is a supervised label
-int isLabelWord(char *word){
-	return startswith(word, "__label__");
-}
-
-// Check whether this word means that this line is for character combination information learning of the word
-int isCombineWord(char *word){
-	return startswith(word, "__combine__");
-}
-
 /* Collect word-word cooccurrence counts from input stream */
 int get_cooccurrence() {
 	int flag, x, y, fidcounter = 1;
@@ -316,6 +306,7 @@ int get_cooccurrence() {
 	FILE *fid, *foverflow;
 	real *bigram_table, r;
 
+	int load_weight = 0;
 	int have_class = 0;
 	int combine_learn = 0;
 	int record_combine_word = 0;
@@ -325,6 +316,7 @@ int get_cooccurrence() {
 	long long line_data[MAX_LINE_LENGTH + 1];
 	int nWords_line = 0;
 	real extra_added_weight = 0;
+	real extra_weight = 0;
 	HASHREC *htmp, **vocab_hash = inithashtable();
 	CREC *cr = malloc(sizeof(CREC) * (overflow_length + 1));
 	history = malloc(sizeof(long long) * window_size);
@@ -393,6 +385,8 @@ int get_cooccurrence() {
 			combine_learn = 0;
 			record_combine_word = 0;
 			guided_learn = 0;
+			load_weight = 0;
+			extra_weight = 0;
 			if (nWords_line > 0){
 				int _i = 0;
 				extra_added_weight = label_weight/nWords_line;
@@ -418,87 +412,99 @@ int get_cooccurrence() {
 				}
 				nWords_line = 0;
 			}
+			extra_added_weight = 0;
 			continue;
 		} // Newline, reset line index (j)
 		counter++;
 		if ((counter%100000) == 0) if (verbose > 1) fprintf(stderr,"\033[19G%lld",counter);
-		htmp = hashsearch(vocab_hash, str);
-		if (htmp == NULL) continue; // Skip out-of-vocabulary words
-		w2 = htmp->id; // Target word (frequency rank)
-		if (isLabelWord(str)){
-			cur_class = w2;
-			have_class = 1;
+		if (scmp(str, "__loadweight__")){
+			load_weight = 1;
 		}
-		else if(isCombineWord(str)){
-			combine_learn = 1;
-		}
-		else if(combine_learn&&(record_combine_word == 0)){
-			combine_word = w2;
-			record_combine_word = 1;
+		else if(load_weight){
+			extra_weight = atof(str);
+			load_weight = 0;
 		}
 		else{
-			if (!(have_class&&mutex_train)){
-				for (k = j - 1; k >= ( (j > window_size) ? j - window_size : 0 ); k--) { // Iterate over all words to the left of target word, but not past beginning of line
-					w1 = history[k % window_size]; // Context word (frequency rank)
+			htmp = hashsearch(vocab_hash, str);
+			if (htmp == NULL) continue; // Skip out-of-vocabulary words
+			w2 = htmp->id; // Target word (frequency rank)
+			if (startswith(str, "__label__")){
+				cur_class = w2;
+				have_class = 1;
+			}
+			else if(scmp(str, "__combine__")){
+				combine_learn = 1;
+			}
+			else if(combine_learn&&(record_combine_word == 0)){
+				combine_word = w2;
+				record_combine_word = 1;
+			}
+			else{
+				if (!(have_class&&mutex_train)){
+					real _uweight = 1.0;
+					if (extra_weight!=0) _uweight=extra_weight;
+					for (k = j - 1; k >= ( (j > window_size) ? j - window_size : 0 ); k--) { // Iterate over all words to the left of target word, but not past beginning of line
+						w1 = history[k % window_size]; // Context word (frequency rank)
+						if ( w1 < max_product/w2 ) { // Product is small enough to store in a full array
+							bigram_table[lookup[w1-1] + w2 - 2] += _uweight/((real)(j-k)); // Weight by inverse of distance between words
+							if (symmetric > 0) bigram_table[lookup[w2-1] + w1 - 2] += _uweight/((real)(j-k)); // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
+						}
+						else { // Product is too big, data is likely to be sparse. Store these entries in a temporary buffer to be sorted, merged (accumulated), and written to file when it gets full.
+							cr[ind].word1 = w1;
+							cr[ind].word2 = w2;
+							cr[ind].val = _uweight/((real)(j-k));
+							ind++; // Keep track of how full temporary buffer is
+							if (symmetric > 0) { // Symmetric context
+								cr[ind].word1 = w2;
+								cr[ind].word2 = w1;
+								cr[ind].val = _uweight/((real)(j-k));
+								ind++;
+							}
+						}
+					}
+				}
+				if(have_class){
+					if (balance_line){
+						line_data[nWords_line++] = w2;
+						if (nWords_line >= MAX_LINE_LENGTH - 1){
+							nWords_line = MAX_LINE_LENGTH - 2;
+							fprintf(stderr, "Data overflow, change MAX_LINE_LENGTH and recompile!");
+						}
+						guided_learn = 0;
+					}
+					else{
+						w1 = cur_class;
+						extra_added_weight = label_weight;
+						guided_learn = 1;
+					}
+				}
+				else if(record_combine_word){
+					w1 = combine_word;
+					extra_added_weight = combine_weight;
+					guided_learn = 1;
+				}
+				if(guided_learn){
+					w1 = cur_class; // Current class
 					if ( w1 < max_product/w2 ) { // Product is small enough to store in a full array
-						bigram_table[lookup[w1-1] + w2 - 2] += 1.0/((real)(j-k)); // Weight by inverse of distance between words
-						if (symmetric > 0) bigram_table[lookup[w2-1] + w1 - 2] += 1.0/((real)(j-k)); // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
+						bigram_table[lookup[w1-1] + w2 - 2] += extra_added_weight; // Weight by inverse of distance between words
+						if (symmetric > 0) bigram_table[lookup[w2-1] + w1 - 2] += extra_added_weight; // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
 					}
 					else { // Product is too big, data is likely to be sparse. Store these entries in a temporary buffer to be sorted, merged (accumulated), and written to file when it gets full.
 						cr[ind].word1 = w1;
 						cr[ind].word2 = w2;
-						cr[ind].val = 1.0/((real)(j-k));
+						cr[ind].val = extra_added_weight;
 						ind++; // Keep track of how full temporary buffer is
 						if (symmetric > 0) { // Symmetric context
 							cr[ind].word1 = w2;
 							cr[ind].word2 = w1;
-							cr[ind].val = 1.0/((real)(j-k));
+							cr[ind].val = extra_added_weight;
 							ind++;
 						}
 					}
 				}
+				history[j % window_size] = w2; // Target word is stored in circular buffer to become context word in the future
+				j++;
 			}
-			if(have_class){
-				if (balance_line){
-					line_data[nWords_line++] = w2;
-					if (nWords_line >= MAX_LINE_LENGTH){
-						nWords_line = MAX_LINE_LENGTH - 1;
-						fprintf(stderr, "Data overflow, change MAX_LINE_LENGTH and recompile!");
-					}
-					guided_learn = 0;
-				}
-				else{
-					w1 = cur_class;
-					extra_added_weight = label_weight;
-					guided_learn = 1;
-				}
-			}
-			else if(record_combine_word){
-				w1 = combine_word;
-				extra_added_weight = combine_weight;
-				guided_learn = 1;
-			}
-			if(guided_learn){
-				w1 = cur_class; // Current class
-				if ( w1 < max_product/w2 ) { // Product is small enough to store in a full array
-					bigram_table[lookup[w1-1] + w2 - 2] += extra_added_weight; // Weight by inverse of distance between words
-					if (symmetric > 0) bigram_table[lookup[w2-1] + w1 - 2] += extra_added_weight; // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
-				}
-				else { // Product is too big, data is likely to be sparse. Store these entries in a temporary buffer to be sorted, merged (accumulated), and written to file when it gets full.
-					cr[ind].word1 = w1;
-					cr[ind].word2 = w2;
-					cr[ind].val = extra_added_weight;
-					ind++; // Keep track of how full temporary buffer is
-					if (symmetric > 0) { // Symmetric context
-						cr[ind].word1 = w2;
-						cr[ind].word2 = w1;
-						cr[ind].val = extra_added_weight;
-						ind++;
-					}
-				}
-			}
-			history[j % window_size] = w2; // Target word is stored in circular buffer to become context word in the future
-			j++;
 		}
 	}
 	
